@@ -3,39 +3,6 @@
 @inject HttpClient Http
 @using Microsoft.AspNetCore.Components
 <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css" rel="stylesheet">
-
-@if (!string.IsNullOrEmpty(errorMessage))
-{
-    <div style="color: #e74c3c; background-color: #f2dede; padding: 10px; border-radius: 5px; margin: 10px;">
-        <p>Error: @errorMessage</p>
-        <button @onclick="ClearError" style="background-color: #007bff; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer;">Clear Error</button>
-    </div>
-}
-
-<div style="margin: 20px; display: flex; gap: 10px; align-items: center;">
-    <label for="nameInput" style="font-family: Arial, sans-serif; color: #000;">Enter Name:</label>
-    <input id="nameInput" @bind="nameInput" placeholder="Type a name" style="padding: 5px; border: 1px solid #ccc; border-radius: 3px;" />
-    <button @onclick="FetchLogsByName" style="background-color: #007bff; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer;">Search</button>
-</div>
-
-@if (isLoading)
-{
-    <p style="text-align: center; color: #000; font-family: Arial, sans-serif;">Loading...</p>
-}
-else if (showRawLogs)
-{
-    <div style="margin: 20px; font-family: Arial, sans-serif;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-            <h3>Raw Attendance Logs</h3>
-            <button @onclick="HideRawLogs" style="background-color: #dc3545; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer;">Back to Summary</button>
-        </div>
-        <table style="width: 100%; border-collapse: collapse; background-color: #fff;">
-            <thead>
-                <tr style="background-color: #007bff; color: white;">
-                    <th style="padding: 10px; text-align: left; border: 1px solid #ccc;">Date</th>
-                    <th style="padding: 10px; text-align: left; border: 1px solid #ccc;">Timestamp</th>
-                    <th style="padding: 10px; text-align: left; border: 1px solid #ccc;">Status</th>
-                </tr>
             </thead>
             <tbody>
                 @foreach (var log in logs.OrderByDescending(l => l.Timestamp))
@@ -50,6 +17,26 @@ else if (showRawLogs)
         </table>
     </div>
 }
+
+???????????
+
+
+using Microsoft.AspNetCore.Components.Web;
+using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
+using Frontend;
+
+var builder = WebAssemblyHostBuilder.CreateDefault(args);
+builder.RootComponents.Add<App>("#app");
+builder.RootComponents.Add<HeadOutlet>("head::after");
+
+
+
+
+
+    kjdikerceirchjuurehgcurehcmnmnenjende
+
+
+
 else if (attendanceDays == null || !attendanceDays.Any())
 {
     <p style="text-align: center; color: #000; font-family: Arial, sans-serif;">No records found.</p>
