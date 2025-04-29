@@ -1,0 +1,590 @@
+@page "/"
+@using System.Net.Http.Json
+@inject HttpClient Http
+@inject NavigationManager NavigationManager
+@using Microsoft.AspNetCore.Components
+@using ClosedXML.Excel
+@using System.IO
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css" rel="stylesheet">
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div style="color: #e74c3c; background-color: #f2dede; padding: 10px; border-radius: 5px; margin: 10px;">
+        <p>Error: @errorMessage</p>
+        <button @onclick="ClearError" style="background-color: #007bff; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer;">Clear Error</button>
+    </div>
+}
+
+@if (isDownloading)
+{
+    <div style="margin: 20px; text-align: center;">
+        <p style="color: #333; font-family: Arial, sans-serif;">Downloading... @downloadProgress.ToString("F1")%</p>
+        <div style="width: 100%; background-color: #f0f0f0; border-radius: 5px; height: 20px;">
+            <div style="width: @downloadProgress%; background-color: #28a745; height: 100%; border-radius: 5px;"></div>
+        </div>
+    </div>
+}
+
+<div style="margin: 20px; display: flex; gap: 10px; align-items: center;">
+    <label for="nameInput" style="font-family: Arial, sans-serif; color: #333;">Enter Name:</label>
+    <input id="nameInput" @bind="nameInput" placeholder="Type a name" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px;" />
+    <button @onclick="FetchLogsByName" style="background-color: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer;" disabled="@isLoading">Search</button>
+</div>
+
+@if (isLoading)
+{
+    <p style="text-align: center; color: #333; font-family: Arial, sans-serif;">Loading...</p>
+}
+else if (showRawLogs)
+{
+    <div style="margin: 20px; font-family: Arial, sans-serif;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <h3>Raw Attendance Logs (@logs.Count records)</h3>
+            <button @onclick="HideRawLogs" style="background-color: #dc3545; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer;">Back to Summary</button>
+        </div>
+        <table style="width: 100%; border-collapse: collapse; background-color: #fff; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);">
+            <thead>
+                <tr style="background-color: #007bff; color: white;">
+                    <th style="padding: 12px; text-align: left; border: 1px solid #ccc;">Date</th>
+                    <th style="padding: 12px; text-align: left; border: 1px solid #ccc;">Timestamp</th>
+                    <th style="padding: 12px; text-align: left; border: 1px solid #ccc;">Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var log in logs.OrderByDescending(l => l.Timestamp))
+                {
+                    <tr style="color: #333;">
+                        <td style="padding: 12px; border: 1px solid #ccc;">@log.Timestamp.ToString("ddd, dd MMM yyyy")</td>
+                        <td style="padding: 12px; border: 1px solid #ccc;">@log.Timestamp.ToString("hh:mm tt")</td>
+                        <td style="padding: 12px; border: 1px solid #ccc;">@(log.Status == 1 ? "Clock In" : "Clock Out")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+else if (!string.IsNullOrEmpty(nameInput) && attendanceDays != null && attendanceDays.Any())
+{
+    <div style="margin: 20px; font-family: Arial, sans-serif;">
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-bottom: 10px;">
+            <button @onclick="() => DownloadExcel(false)" style="background-color: #28a745; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer;" disabled="@isDownloading">Download for @nameInput</button>
+            <button @onclick="() => DownloadExcel(true)" style="background-color: #17a2b8; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer;" disabled="@isDownloading">Download All Data</button>
+        </div>
+        <table style="width: 100%; border-collapse: collapse; background-color: #fff; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);">
+            <thead>
+                <tr style="background-color: #007bff; color: white;">
+                    <th style="padding: 12px; text-align: left; border: 1px solid #ccc;">Date</th>
+                    <th style="padding: 12px; text-align: left; border: 1px solid #ccc;">Clock In Time</th>
+                    <th style="padding: 12px; text-align: left; border: 1px solid #ccc;">Clock Out Time</th>
+                    <th style="padding: 12px; text-align: left; border: 1px solid #ccc;">Total Hours Worked</th>
+                    <th style="padding: 12px; text-align: left; border: 1px solid #ccc;">Status</th>
+                    <th style="padding: 12px; text-align: left; border: 1px solid #ccc;">Details</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var day in attendanceDays)
+                {
+                    <tr style="color: #333;">
+                        <td style="padding: 12px; border: 1px solid #ccc;">@day.Date.ToString("ddd, dd MMM yyyy")</td>
+                        <td style="padding: 12px; border: 1px solid #ccc;">@(day.ClockIn != null ? day.ClockIn.Value.ToString("hh:mm tt") : "-")</td>
+                        <td style="padding: 12px; border: 1px solid #ccc;">@(day.ClockOut != null ? day.ClockOut.Value.ToString("hh:mm tt") : "-")</td>
+                        <td style="padding: 12px; border: 1px solid #ccc;">@day.TotalHours.ToString("F2") hrs</td>
+                        <td style="padding: 12px; border: 1px solid #ccc;">
+                            @(day.IsWeeklyOff ? "Weekly Off" : day.Status ? "Present" : "Absent")
+                        </td>
+                        <td style="padding: 12px; border: 1px solid #ccc;">
+                            <i class="fas fa-list" style="cursor: pointer;" @onclick="() => ShowRawLogs()"></i>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private string nameInput = "";
+    private List<AttendanceDto> logs = new();
+    private bool isLoading = false;
+    private bool isDownloading = false;
+    private double downloadProgress = 0;
+    private string? errorMessage;
+    private List<AttendanceDay> attendanceDays = new();
+    private bool showRawLogs = false;
+    private const int PageSize = 200;
+    private int totalRecordsExpected = 10022;
+
+    public class AttendanceDto
+    {
+        public string UserId { get; set; } = "";
+        public string Name { get; set; } = "";
+        public DateTime Timestamp { get; set; }
+        public int Status { get; set; } // 1 = Clock In, 0 = Clock Out
+    }
+
+    public class AttendanceDay
+    {
+        public DateTime Date { get; set; }
+        public DateTime? ClockIn { get; set; }
+        public DateTime? ClockOut { get; set; }
+        public double TotalHours { get; set; }
+        public bool Status { get; set; }
+        public bool IsWeeklyOff { get; set; }
+        public string Name { get; set; } = "";
+    }
+
+    private async Task FetchLogsByName()
+    {
+        try
+        {
+            isLoading = true;
+            errorMessage = null;
+            logs = new List<AttendanceDto>();
+            attendanceDays = new List<AttendanceDay>();
+
+            if (string.IsNullOrEmpty(nameInput))
+            {
+                isLoading = false;
+                return;
+            }
+
+            var endpoint = $"api/Zkteco/get-logs/{Uri.EscapeDataString(nameInput)}";
+            Console.WriteLine($"Fetching logs for name: {nameInput}, Endpoint: {endpoint}");
+            var response = await Http.GetAsync(endpoint);
+            var content = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                errorMessage = $"Request failed with status {(int)response.StatusCode} ({response.ReasonPhrase}): {content}";
+                Console.WriteLine(errorMessage);
+                return;
+            }
+
+            logs = await response.Content.ReadFromJsonAsync<List<AttendanceDto>>() ?? new List<AttendanceDto>();
+            Console.WriteLine($"Fetched {logs.Count} logs for {nameInput}");
+            GenerateAttendanceTable();
+        }
+        catch (HttpRequestException ex)
+        {
+            errorMessage = $"Failed to fetch logs: {ex.Message}. Check if the backend is running.";
+            Console.WriteLine($"HttpRequestException: {ex}");
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"An error occurred: {ex.Message}";
+            Console.WriteLine($"Exception: {ex}");
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task<List<AttendanceDto>> FetchAllLogs()
+    {
+        try
+        {
+            var allLogs = new List<AttendanceDto>();
+            int page = 1;
+            bool hasMoreData = true;
+
+            while (hasMoreData)
+            {
+                var endpoint = $"api/Zkteco/get-all-logs?page={page}&pageSize={PageSize}";
+                Console.WriteLine($"Fetching page {page}, Endpoint: {endpoint}");
+                var response = await Http.GetAsync(endpoint);
+                var content = await response.Content.ReadAsStringAsync();
+
+                Console.WriteLine($"Page {page} Response Status: {(int)response.StatusCode} ({response.ReasonPhrase}), Content Length: {content.Length}");
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    errorMessage = $"Failed to fetch logs from {endpoint}: Status {(int)response.StatusCode} ({response.ReasonPhrase}): {content}";
+                    Console.WriteLine(errorMessage);
+                    return allLogs;
+                }
+
+                var pageLogs = await response.Content.ReadFromJsonAsync<List<AttendanceDto>>();
+                if (pageLogs == null || pageLogs.Count == 0)
+                {
+                    Console.WriteLine($"Page {page} returned no data. Stopping pagination.");
+                    hasMoreData = false;
+                    break;
+                }
+
+                allLogs.AddRange(pageLogs);
+                Console.WriteLine($"Page {page} fetched {pageLogs.Count} logs, Total so far: {allLogs.Count}");
+                downloadProgress = Math.Min(100, (allLogs.Count * 100.0 / totalRecordsExpected));
+                StateHasChanged();
+
+                if (pageLogs.Count < PageSize || allLogs.Count >= totalRecordsExpected)
+                {
+                    Console.WriteLine($"Received {pageLogs.Count} logs. Total: {allLogs.Count}. Stopping pagination.");
+                    hasMoreData = false;
+                }
+
+                page++;
+                await Task.Delay(50);
+            }
+
+            Console.WriteLine($"Total logs fetched: {allLogs.Count}");
+            return allLogs;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to fetch all logs: {ex.Message}";
+            Console.WriteLine($"Exception in FetchAllLogs: {ex}");
+            return new List<AttendanceDto>();
+        }
+    }
+
+    private void GenerateAttendanceTable()
+    {
+        if (logs == null || !logs.Any())
+        {
+            Console.WriteLine("No logs to generate attendance table.");
+            attendanceDays = new List<AttendanceDay>();
+            return;
+        }
+
+        Console.WriteLine($"Generating attendance table for {logs.Count} logs");
+
+        // Define a 90-day period for the specific user
+        var ninetyDays = Enumerable.Range(0, 90)
+            .Select(d => DateTime.Today.AddDays(-d))
+            .Distinct()
+            .OrderByDescending(d => d)
+            .ToList();
+
+        // Initialize attendance days for the 90-day period
+        attendanceDays = ninetyDays.Select(d => new AttendanceDay 
+        { 
+            Date = d,
+            IsWeeklyOff = d.DayOfWeek == DayOfWeek.Saturday || d.DayOfWeek == DayOfWeek.Sunday,
+            Name = nameInput
+        }).ToList();
+
+        // Clean logs: filter by 90-day period and remove duplicates
+        var cleanedLogs = logs
+            .Where(l => ninetyDays.Contains(l.Timestamp.ToLocalTime().Date))
+            .GroupBy(l => l.Timestamp)
+            .Select(g => g.First())
+            .OrderBy(l => l.Timestamp)
+            .ToList();
+
+        Console.WriteLine($"After cleaning, {cleanedLogs.Count} logs remain for 90-day period");
+
+        // Group logs by date
+        var groupedLogs = cleanedLogs
+            .GroupBy(l => l.Timestamp.ToLocalTime().Date)
+            .ToDictionary(g => g.Key, g => g.OrderBy(l => l.Timestamp).ToList());
+
+        // Process each day to calculate hours
+        foreach (var day in attendanceDays)
+        {
+            if (day.IsWeeklyOff)
+            {
+                day.Status = false;
+                day.TotalHours = 0;
+                continue;
+            }
+
+            if (groupedLogs.TryGetValue(day.Date, out var dayLogs))
+            {
+                // Get first clock-in (Status == 1) and last clock-out (Status == 0)
+                var firstClockIn = dayLogs
+                    .Where(l => l.Status == 1)
+                    .OrderBy(l => l.Timestamp)
+                    .FirstOrDefault();
+
+                var lastClockOut = dayLogs
+                    .Where(l => l.Status == 0)
+                    .OrderByDescending(l => l.Timestamp)
+                    .FirstOrDefault();
+
+                if (firstClockIn != null)
+                {
+                    day.Status = true;
+                    day.ClockIn = firstClockIn.Timestamp;
+
+                    if (lastClockOut != null && lastClockOut.Timestamp > firstClockIn.Timestamp)
+                    {
+                        day.ClockOut = lastClockOut.Timestamp;
+                        day.TotalHours = (lastClockOut.Timestamp - firstClockIn.Timestamp).TotalHours;
+                        day.TotalHours = Math.Max(0, day.TotalHours); // Ensure non-negative hours
+                    }
+                    else
+                    {
+                        day.ClockOut = null;
+                        day.TotalHours = 0;
+                    }
+                }
+                else
+                {
+                    day.Status = false;
+                    day.ClockIn = null;
+                    day.ClockOut = null;
+                    day.TotalHours = 0;
+                }
+            }
+            else
+            {
+                day.Status = false;
+                day.ClockIn = null;
+                day.ClockOut = null;
+                day.TotalHours = 0;
+            }
+        }
+
+        attendanceDays = attendanceDays.OrderByDescending(d => d.Date).ToList();
+        Console.WriteLine($"Generated {attendanceDays.Count} attendance days");
+    }
+
+    private async Task DownloadExcel(bool downloadAll)
+    {
+        isDownloading = true;
+        downloadProgress = 0;
+        StateHasChanged();
+
+        try
+        {
+            List<AttendanceDay> daysToExport;
+
+            if (!downloadAll)
+            {
+                Console.WriteLine($"Downloading Excel for user: {nameInput}, {attendanceDays.Count} days");
+                daysToExport = attendanceDays;
+            }
+            else
+            {
+                var allLogs = await FetchAllLogs();
+                if (!allLogs.Any())
+                {
+                    errorMessage = "No data available to download. Check the backend API response at api/Zkteco/get-all-logs.";
+                    Console.WriteLine(errorMessage);
+                    return;
+                }
+
+                Console.WriteLine($"Fetched {allLogs.Count} logs for all users");
+
+                // Get all unique dates from logs
+                var allDates = allLogs
+                    .Select(l => l.Timestamp.ToLocalTime().Date)
+                    .Distinct()
+                    .OrderByDescending(d => d)
+                    .ToList();
+
+                Console.WriteLine($"Found {allDates.Count} unique dates in logs");
+
+                var groupedByUser = allLogs.GroupBy(l => l.Name).ToList();
+                daysToExport = new List<AttendanceDay>(allDates.Count * groupedByUser.Count);
+
+                int processedUsers = 0;
+                foreach (var userGroup in groupedByUser)
+                {
+                    var userName = userGroup.Key;
+                    var userLogs = userGroup.ToList();
+
+                    Console.WriteLine($"Processing user: {userName}, {userLogs.Count} logs");
+
+                    var cleanedLogs = userLogs
+                        .GroupBy(l => l.Timestamp)
+                        .Select(g => g.First())
+                        .OrderBy(l => l.Timestamp)
+                        .ToList();
+
+                    Console.WriteLine($"After cleaning, {cleanedLogs.Count} logs remain for {userName}");
+
+                    var groupedLogs = cleanedLogs
+                        .GroupBy(l => l.Timestamp.ToLocalTime().Date)
+                        .ToDictionary(g => g.Key, g => g.OrderBy(l => l.Timestamp).ToList());
+
+                    var userDays = allDates.Select(d => new AttendanceDay
+                    {
+                        Date = d,
+                        IsWeeklyOff = d.DayOfWeek == DayOfWeek.Saturday || d.DayOfWeek == DayOfWeek.Sunday,
+                        Name = userName
+                    }).ToList();
+
+                    foreach (var day in userDays)
+                    {
+                        if (day.IsWeeklyOff)
+                        {
+                            day.Status = false;
+                            day.TotalHours = 0;
+                            continue;
+                        }
+
+                        if (groupedLogs.TryGetValue(day.Date, out var dayLogs))
+                        {
+                            // Get first clock-in (Status == 1) and last clock-out (Status == 0)
+                            var firstClockIn = dayLogs
+                                .Where(l => l.Status == 1)
+                                .OrderBy(l => l.Timestamp)
+                                .FirstOrDefault();
+
+                            var lastClockOut = dayLogs
+                                .Where(l => l.Status == 0)
+                                .OrderByDescending(l => l.Timestamp)
+                                .FirstOrDefault();
+
+                            if (firstClockIn != null)
+                            {
+                                day.Status = true;
+                                day.ClockIn = firstClockIn.Timestamp;
+
+                                if (lastClockOut != null && lastClockOut.Timestamp > firstClockIn.Timestamp)
+                                {
+                                    day.ClockOut = lastClockOut.Timestamp;
+                                    day.TotalHours = (lastClockOut.Timestamp - firstClockIn.Timestamp).TotalHours;
+                                    day.TotalHours = Math.Max(0, day.TotalHours);
+                                }
+                                else
+                                {
+                                    day.ClockOut = null;
+                                    day.TotalHours = 0;
+                                }
+                            }
+                            else
+                            {
+                                day.Status = false;
+                                day.ClockIn = null;
+                                day.ClockOut = null;
+                                day.TotalHours = 0;
+                            }
+                        }
+                        else
+                        {
+                            day.Status = false;
+                            day.ClockIn = null;
+                            day.ClockOut = null;
+                            day.TotalHours = 0;
+                        }
+                    }
+
+                    daysToExport.AddRange(userDays);
+                    processedUsers++;
+                    downloadProgress = Math.Min(100, (processedUsers * 100.0 / groupedByUser.Count));
+                    Console.WriteLine($"Processed {processedUsers}/{groupedByUser.Count} users, {daysToExport.Count} days so far");
+                    StateHasChanged();
+                    await Task.Delay(1);
+                }
+
+                daysToExport = daysToExport.OrderByDescending(d => d.Date).ThenBy(d => d.Name).ToList();
+                Console.WriteLine($"Total days to export: {daysToExport.Count}");
+            }
+
+            if (!daysToExport.Any())
+            {
+                errorMessage = "No data available to download after processing.";
+                Console.WriteLine(errorMessage);
+                return;
+            }
+
+            using (var workbook = new XLWorkbook())
+            {
+                var worksheet = workbook.Worksheets.Add("Attendance");
+
+                // Add title
+                worksheet.Cell(1, 1).Value = "Attendance Report";
+                worksheet.Cell(1, 1).Style.Font.Bold = true;
+                worksheet.Cell(1, 1).Style.Font.FontSize = 16;
+                worksheet.Range(1, 1, 1, 6).Merge();
+                worksheet.Cell(1, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
+                // Add headers
+                var headers = new[] { "Name", "Date", "Clock In Time", "Clock Out Time", "Total Hours Worked", "Status" };
+                for (int i = 0; i < headers.Length; i++)
+                {
+                    var cell = worksheet.Cell(3, i + 1);
+                    cell.Value = headers[i];
+                    cell.Style.Font.Bold = true;
+                    cell.Style.Fill.BackgroundColor = XLColor.LightBlue;
+                    cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                    cell.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+                }
+
+                // Add data in smaller batches
+                const int batchSize = 200;
+                for (int i = 0; i < daysToExport.Count; i += batchSize)
+                {
+                    var batch = daysToExport.Skip(i).Take(batchSize).ToList();
+                    Console.WriteLine($"Processing batch {i/batchSize + 1}: {batch.Count} records");
+
+                    for (int j = 0; j < batch.Count; j++)
+                    {
+                        var day = batch[j];
+                        var row = i + j + 4;
+                        worksheet.Cell(row, 1).Value = day.Name;
+                        worksheet.Cell(row, 2).Value = day.Date.ToString("ddd, dd MMM yyyy");
+                        worksheet.Cell(row, 3).Value = day.ClockIn != null ? day.ClockIn.Value.ToString("hh:mm tt") : "-";
+                        worksheet.Cell(row, 4).Value = day.ClockOut != null ? day.ClockOut.Value.ToString("hh:mm tt") : "-";
+                        worksheet.Cell(row, 5).Value = day.TotalHours.ToString("F2") + " hrs";
+                        worksheet.Cell(row, 6).Value = day.IsWeeklyOff ? "Weekly Off" : day.Status ? "Present" : "Absent";
+
+                        for (int k = 1; k <= 6; k++)
+                        {
+                            var cell = worksheet.Cell(row, k);
+                            cell.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+                            cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
+                        }
+                    }
+
+                    downloadProgress = Math.Min(100, ((i + batch.Count) * 100.0 / daysToExport.Count));
+                    Console.WriteLine($"Batch {i/batchSize + 1} completed, Progress: {downloadProgress:F1}%");
+                    StateHasChanged();
+                    await Task.Delay(1);
+
+                    GC.Collect();
+                    GC.WaitForPendingFinalizers();
+                }
+
+                worksheet.Columns().AdjustToContents();
+
+                using (var stream = new MemoryStream())
+                {
+                    workbook.SaveAs(stream);
+                    var content = stream.ToArray();
+                    var fileName = downloadAll ? "All_Users_Attendance.xlsx" : $"{nameInput}_Attendance.xlsx";
+                    Console.WriteLine($"Excel file generated: {content.Length} bytes, {daysToExport.Count} records");
+
+                    var base64 = Convert.ToBase64String(content);
+                    var dataUrl = $"data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{base64}";
+                    Console.WriteLine($"Initiating download for {fileName}, Base64 length: {base64.Length}");
+                    NavigationManager.NavigateTo(dataUrl, forceLoad: true);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error during download: {ex.Message}";
+            Console.WriteLine($"Exception in DownloadExcel: {ex}");
+        }
+        finally
+        {
+            isDownloading = false;
+            downloadProgress = 0;
+            StateHasChanged();
+            GC.Collect();
+        }
+    }
+
+    private void ClearError()
+    {
+        errorMessage = null;
+        StateHasChanged();
+    }
+
+    private void ShowRawLogs()
+    {
+        showRawLogs = true;
+        StateHasChanged();
+    }
+
+    private void HideRawLogs()
+    {
+        showRawLogs = false;
+        StateHasChanged();
+    }
+}

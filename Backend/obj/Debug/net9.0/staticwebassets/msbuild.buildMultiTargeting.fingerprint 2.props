@@ -1,0 +1,3 @@
+﻿<Project>
+  <Import Project="../build/fingerprint 2.props" />
+</Project>
